@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
-import { supabase } from '../utils/supabaseClient';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../utils/firebaseClient';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -14,13 +15,11 @@ export default function Login() {
     setError(null);
     setIsSubmitting(true);
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (signInError) {
-      setError(signInError.message);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sign in failed.';
+      setError(message);
     }
 
     setIsSubmitting(false);

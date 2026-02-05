@@ -3,6 +3,11 @@ import { Heart, Thermometer, Droplets, Activity } from 'lucide-react';
 
 interface LiveStatusPanelProps {
   data: MonitoringData | null;
+  deviations?: {
+    hr: 'higher' | 'lower' | 'normal';
+    temp: 'higher' | 'lower' | 'normal';
+    sweat: 'higher' | 'lower' | 'normal';
+  } | null;
 }
 
 const getSweatLabel = (level: number): string => {
@@ -32,7 +37,22 @@ const hypoglycemiaStages = [
   { code: 3, name: 'RECOVERY', meaning: 'Return toward baseline' },
 ];
 
-export default function LiveStatusPanel({ data }: LiveStatusPanelProps) {
+const deviationStyles: Record<'higher' | 'lower' | 'normal', { label: string; className: string }> = {
+  higher: { label: 'Higher', className: 'text-red-600' },
+  lower: { label: 'Lower', className: 'text-blue-600' },
+  normal: { label: 'Normal', className: 'text-green-600' },
+};
+
+const DeviationLabel = ({ value }: { value: 'higher' | 'lower' | 'normal' | null }) => {
+  if (!value) {
+    return <div className="text-xs text-gray-400">Baseline learning</div>;
+  }
+
+  const style = deviationStyles[value];
+  return <div className={`text-xs font-semibold ${style.className}`}>{style.label}</div>;
+};
+
+export default function LiveStatusPanel({ data, deviations }: LiveStatusPanelProps) {
   if (!data) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-8">
@@ -51,6 +71,7 @@ export default function LiveStatusPanel({ data }: LiveStatusPanelProps) {
           <div className="text-sm text-gray-600 mb-1">Heart Rate</div>
           <div className="text-4xl font-bold text-gray-900">{data.heart_rate}</div>
           <div className="text-sm text-gray-500 mt-1">BPM</div>
+          <DeviationLabel value={deviations?.hr ?? null} />
         </div>
 
         <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg">
@@ -58,6 +79,7 @@ export default function LiveStatusPanel({ data }: LiveStatusPanelProps) {
           <div className="text-sm text-gray-600 mb-1">Skin Temperature</div>
           <div className="text-4xl font-bold text-gray-900">{data.skin_temp.toFixed(1)}</div>
           <div className="text-sm text-gray-500 mt-1">°C</div>
+          <DeviationLabel value={deviations?.temp ?? null} />
         </div>
 
         <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg">
@@ -65,6 +87,7 @@ export default function LiveStatusPanel({ data }: LiveStatusPanelProps) {
           <div className="text-sm text-gray-600 mb-1">Sweat Level</div>
           <div className="text-4xl font-bold text-gray-900">{getSweatLabel(data.sweat_level)}</div>
           <div className="text-sm text-gray-500 mt-1">({data.sweat_level})</div>
+          <DeviationLabel value={deviations?.sweat ?? null} />
         </div>
 
         <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg border-4" style={{ borderColor: `var(--state-color-${state})` }}>

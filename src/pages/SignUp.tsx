@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../utils/supabaseClient';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { auth } from '../utils/firebaseClient';
 
 export default function SignUp() {
   const [fullName, setFullName] = useState('');
@@ -17,40 +18,15 @@ export default function SignUp() {
     setSuccess(null);
     setIsSubmitting(true);
 
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          phone,
-        },
-      },
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
-    } else {
-      const userId = authData.user?.id;
-
-      if (!userId) {
-        setError('Account created, but user ID is unavailable. Please try signing in.');
-        setIsSubmitting(false);
-        return;
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      if (fullName) {
+        await updateProfile(credential.user, { displayName: fullName });
       }
-
-      const { error: insertError } = await supabase.from('patients').insert({
-        user_id: userId,
-        full_name: fullName,
-        email,
-        phone,
-      });
-
-      if (insertError) {
-        setError(insertError.message);
-      } else {
-        setSuccess('Account created. Please sign in to continue.');
-      }
+      setSuccess('Account created. Please sign in to continue.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sign up failed.';
+      setError(message);
     }
 
     setIsSubmitting(false);

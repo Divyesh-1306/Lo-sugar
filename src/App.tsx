@@ -1,55 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import type { Session } from '@supabase/supabase-js';
+import type { User } from 'firebase/auth';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import Dashboard from './pages/Dashboard';
-import { supabase } from './utils/supabaseClient';
+import { auth } from './utils/firebaseClient';
+import { onAuthStateChanged } from 'firebase/auth';
 
 function App() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser ?? null);
       setIsLoading(false);
     });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession ?? null);
-    });
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
-
-  useEffect(() => {
-    const ensurePatientProfile = async () => {
-      const user = session?.user;
-      if (!user) return;
-
-      const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
-      const phone = (user.user_metadata?.phone as string | undefined) ?? null;
-
-      const { error } = await supabase.from('patients').upsert(
-        {
-          user_id: user.id,
-          full_name: fullName,
-          email: user.email ?? null,
-          phone,
-        },
-        { onConflict: 'user_id' }
-      );
-
-      if (error) {
-        console.error('Failed to upsert patient profile:', error.message);
-      }
-    };
-
-    void ensurePatientProfile();
-  }, [session?.user]);
 
   if (isLoading) {
     return (
@@ -63,19 +32,19 @@ function App() {
     <Routes>
       <Route
         path="/"
-        element={session ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}
+        element={user ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/login"
-        element={session ? <Navigate to="/dashboard" replace /> : <Login />}
+        element={user ? <Navigate to="/dashboard" replace /> : <Login />}
       />
       <Route
         path="/signup"
-        element={session ? <Navigate to="/dashboard" replace /> : <SignUp />}
+        element={user ? <Navigate to="/dashboard" replace /> : <SignUp />}
       />
       <Route
         path="/dashboard"
-        element={session ? <Dashboard user={session.user} /> : <Navigate to="/login" replace />}
+        element={user ? <Dashboard user={user} /> : <Navigate to="/login" replace />}
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
