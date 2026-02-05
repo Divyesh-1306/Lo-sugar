@@ -25,6 +25,32 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const ensurePatientProfile = async () => {
+      const user = session?.user;
+      if (!user) return;
+
+      const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
+      const phone = (user.user_metadata?.phone as string | undefined) ?? null;
+
+      const { error } = await supabase.from('patients').upsert(
+        {
+          user_id: user.id,
+          full_name: fullName,
+          email: user.email ?? null,
+          phone,
+        },
+        { onConflict: 'user_id' }
+      );
+
+      if (error) {
+        console.error('Failed to upsert patient profile:', error.message);
+      }
+    };
+
+    void ensurePatientProfile();
+  }, [session?.user]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">

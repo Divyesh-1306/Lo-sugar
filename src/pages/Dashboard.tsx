@@ -5,12 +5,20 @@ import LiveStatusPanel from '../components/LiveStatusPanel';
 import TrendGraph from '../components/TrendGraph';
 import EventTimeline from '../components/EventTimeline';
 import { MonitoringData, Event, DataPoint } from '../types/monitoring';
-import { detectEvents, createDataPoint, parseCSVLine } from '../utils/dataProcessor';
+import { createDataPoint } from '../utils/dataProcessor';
 import { supabase } from '../utils/supabaseClient';
 
 interface DashboardProps {
-  user: User;
+  user?: User;
 }
+
+type LatestHealthRow = {
+  heart_rate: number | null;
+  skin_temp: number | null;
+  sweat_level: string | null;
+  state: string | null;
+  created_at: string | null;
+};
 
 const stateBadgeStyles: Record<MonitoringData['state'], string> = {
   NORMAL: 'bg-green-600 text-white',
@@ -27,6 +35,7 @@ const stateLabels: Record<MonitoringData['state'], string> = {
 };
 
 export default function Dashboard({ user }: DashboardProps) {
+  const [currentUser, setCurrentUser] = useState<User | null>(user ?? null);
   const [currentData, setCurrentData] = useState<MonitoringData | null>(null);
   const [hrData, setHrData] = useState<DataPoint[]>([]);
   const [tempData, setTempData] = useState<DataPoint[]>([]);
@@ -34,22 +43,126 @@ export default function Dashboard({ user }: DashboardProps) {
   const [events, setEvents] = useState<Event[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
+  const [latestData, setLatestData] = useState<LatestHealthRow | null>(null);
+  const [recentReadings, setRecentReadings] = useState<LatestHealthRow[]>([]);
+  const [isLatestLoading, setIsLatestLoading] = useState(true);
+  const [latestError, setLatestError] = useState<string | null>(null);
 
   const previousDataRef = useRef<MonitoringData | null>(null);
   const lastAlertSentRef = useRef<number | null>(null);
+  const lastDbStateRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (!isMounted) return;
+      setCurrentUser(data.user ?? user ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   const patientName = useMemo(() => {
-    return (user.user_metadata?.full_name as string | undefined) || user.email || 'Patient';
-  }, [user]);
+    return currentUser?.email || 'Shared Dashboard';
+  }, [currentUser]);
 
   const deviceId = import.meta.env.VITE_DEVICE_ID || 'ESP32-EDGE-001';
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchInitialData = async () => {
+      setIsLatestLoading(true);
+      setLatestError(null);
+
+      const { data, error } = await supabase
+        .from('health_data')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      console.log('Fetched data:', data);
+      console.log('Fetch error:', error);
+
+      if (!isMounted) return;
+
+      if (error) {
+        setLatestError(error.message);
+        setLatestData(null);
+        setRecentReadings([]);
+      } else {
+        const rows = (data ?? []) as LatestHealthRow[];
+        setRecentReadings(rows);
+        setLatestData(rows[0] ?? null);
+      }
+
+      setIsLatestLoading(false);
+    };
+
+    void fetchInitialData();
+
+    const channel = supabase
+      .channel('health-data-stream')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'health_data' },
+        (payload) => {
+          const newRow = payload.new as LatestHealthRow;
+          setRecentReadings((prev) => [newRow, ...prev].slice(0, 20));
+          setLatestData(newRow);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!latestData) return;
+
+    const derived: MonitoringData = {
+      heart_rate: latestData.heart_rate ?? 0,
+      skin_temp: latestData.skin_temp ?? 0,
+      sweat_level: Number(latestData.sweat_level) || 0,
+      state: (latestData.state as MonitoringData['state']) || 'NORMAL',
+      time: latestData.created_at ? new Date(latestData.created_at).getTime() : Date.now(),
+      baseline_hr: 70,
+      baseline_temp: 36.5,
+      baseline_sweat: 0,
+    };
+
+    setCurrentData(derived);
+    setHrData((prevData) => [...prevData, createDataPoint(derived, 'hr')].slice(-100));
+    setTempData((prevData) => [...prevData, createDataPoint(derived, 'temp')].slice(-100));
+    setSweatData((prevData) => [...prevData, createDataPoint(derived, 'sweat')].slice(-100));
+
+    const nextState = latestData.state ?? 'NORMAL';
+    if (lastDbStateRef.current && lastDbStateRef.current !== nextState) {
+      setEvents((prevEvents) => [
+        {
+          id: `${Date.now()}-${nextState}`,
+          timestamp: Date.now(),
+          type: 'STATE_CHANGE',
+          message: `State changed to ${nextState}`,
+        },
+        ...prevEvents,
+      ].slice(0, 50));
+    }
+    lastDbStateRef.current = nextState;
+  }, [latestData]);
+
   const sendAlertEmail = async (payload: MonitoringData, detectedEvents: Event[]) => {
-    if (!user.email) return;
+    if (!currentUser?.email) return;
 
     const now = new Date();
     const alertData = {
-      to: user.email,
+      to: currentUser.email,
       timestamp: now.toISOString(),
       state: payload.state,
       heart_rate: payload.heart_rate,
@@ -71,76 +184,7 @@ export default function Dashboard({ user }: DashboardProps) {
   };
 
   useEffect(() => {
-    const wsUrl = import.meta.env.VITE_ESP32_WS_URL as string | undefined;
-
-    if (!wsUrl) {
-      setIsConnected(false);
-      return;
-    }
-
-    let socket: WebSocket | null = null;
-    let reconnectTimer: number | null = null;
-
-    const connect = () => {
-      socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        setIsConnected(true);
-      };
-
-      socket.onclose = () => {
-        setIsConnected(false);
-        if (reconnectTimer === null) {
-          reconnectTimer = window.setTimeout(() => {
-            reconnectTimer = null;
-            connect();
-          }, 2000);
-        }
-      };
-
-      socket.onerror = () => {
-        setIsConnected(false);
-      };
-
-      socket.onmessage = (event) => {
-        const parsed = parseCSVLine(String(event.data));
-        if (!parsed) return;
-
-        const prev = previousDataRef.current;
-        const newEvents = detectEvents(parsed, prev);
-
-        if (newEvents.length > 0) {
-          setEvents((prevEvents) => [...newEvents, ...prevEvents].slice(0, 50));
-        }
-
-        setCurrentData(parsed);
-        setHrData((prevData) => [...prevData, createDataPoint(parsed, 'hr')].slice(-100));
-        setTempData((prevData) => [...prevData, createDataPoint(parsed, 'temp')].slice(-100));
-        setSweatData((prevData) => [...prevData, createDataPoint(parsed, 'sweat')].slice(-100));
-
-        if (parsed.state === 'ALERT' && prev?.state !== 'ALERT') {
-          const now = Date.now();
-          if (!lastAlertSentRef.current || now - lastAlertSentRef.current > 60_000) {
-            lastAlertSentRef.current = now;
-            void sendAlertEmail(parsed, newEvents);
-          }
-        }
-
-        previousDataRef.current = parsed;
-      };
-    };
-
-    connect();
-
-    return () => {
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (socket) {
-        socket.close();
-      }
-      setIsConnected(false);
-    };
+    setIsConnected(true);
   }, []);
 
   const currentState = currentData?.state || 'NORMAL';
@@ -180,6 +224,79 @@ export default function Dashboard({ user }: DashboardProps) {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="space-y-8">
+          <section className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Latest Health Data</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Live monitoring from the shared dashboard feed
+            </p>
+
+            {isLatestLoading ? (
+              <div className="text-slate-600">Loading health data...</div>
+            ) : latestError ? (
+              <div className="text-red-600">{latestError}</div>
+            ) : !latestData ? (
+              <div className="text-slate-600">Waiting for incoming data...</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                  <div className="text-sm text-slate-500">Heart Rate</div>
+                  <div className="text-2xl font-semibold text-slate-900">
+                    {latestData.heart_rate ?? '—'} BPM
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                  <div className="text-sm text-slate-500">Skin Temp</div>
+                  <div className="text-2xl font-semibold text-slate-900">
+                    {latestData.skin_temp ?? '—'} °C
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                  <div className="text-sm text-slate-500">Sweat Level</div>
+                  <div className="text-2xl font-semibold text-slate-900">
+                    {latestData.sweat_level ?? '—'}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                  <div className="text-sm text-slate-500">State</div>
+                  <div className="text-2xl font-semibold text-slate-900">
+                    {latestData.state ?? '—'}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                  <div className="text-sm text-slate-500">Timestamp</div>
+                  <div className="text-2xl font-semibold text-slate-900">
+                    {latestData.created_at
+                      ? new Date(latestData.created_at).toLocaleString()
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Live Stream</h3>
+              <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                {recentReadings.length === 0 ? (
+                  <div className="text-slate-500">Waiting for incoming data...</div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentReadings.map((row, index) => (
+                      <div key={`${row.created_at ?? 'row'}-${index}`} className="flex flex-wrap gap-3">
+                        <span className="text-slate-500">
+                          {row.created_at ? new Date(row.created_at).toLocaleTimeString() : '—'}
+                        </span>
+                        <span>HR: {row.heart_rate ?? '—'} BPM</span>
+                        <span>Temp: {row.skin_temp ?? '—'} °C</span>
+                        <span>Sweat: {row.sweat_level ?? '—'}</span>
+                        <span>State: {row.state ?? '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
           <section className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
