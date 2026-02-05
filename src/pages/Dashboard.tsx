@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, LogOut, ShieldCheck, Signal } from 'lucide-react';
+import { Activity, Heart, LogOut, ShieldCheck, Signal } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import LiveStatusPanel from '../components/LiveStatusPanel';
 import TrendGraph from '../components/TrendGraph';
@@ -153,8 +153,10 @@ export default function Dashboard({ user }: DashboardProps) {
             <div className="flex items-center gap-3">
               <Activity className="w-10 h-10 text-slate-900" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-                  VITALSHIFT
+                <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <span>Lo</span>
+                  <Heart className="w-7 h-7 text-red-500 animate-heartbeat" aria-hidden="true" />
+                  <span>Sugar</span>
                 </h1>
                 <p className="text-sm text-slate-600 font-medium">Real-Time Physiological Monitoring</p>
               </div>
@@ -261,7 +263,11 @@ export default function Dashboard({ user }: DashboardProps) {
 
       <footer className="bg-white border-t border-slate-200 mt-12">
         <div className="max-w-7xl mx-auto px-6 py-6 text-center text-sm text-slate-600">
-          <p className="font-medium">VITALSHIFT Edge Intelligence System</p>
+          <p className="font-medium inline-flex items-center justify-center gap-2">
+            <span>Lo</span>
+            <Heart className="w-4 h-4 text-red-500 animate-heartbeat" aria-hidden="true" />
+            <span>Sugar Edge Intelligence System</span>
+          </p>
           <p className="text-slate-500 mt-1">
             Demonstrating personalized baselines and explainable system behavior
           </p>

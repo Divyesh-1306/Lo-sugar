@@ -53,7 +53,6 @@ export default function SignUp() {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               className="w-full rounded-lg border border-slate-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-              placeholder="Dr. Casey Morgan"
               required
             />
           </div>
@@ -64,7 +63,7 @@ export default function SignUp() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-lg border border-slate-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-              placeholder="name@hospital.org"
+
               required
             />
           </div>
@@ -75,7 +74,7 @@ export default function SignUp() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border border-slate-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-              placeholder="+1 555 0100"
+
               required
             />
           </div>
@@ -86,7 +85,7 @@ export default function SignUp() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-              placeholder="Create a secure password"
+
               required
             />
           </div>

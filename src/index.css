@@ -1,3 +1,26 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes heartbeat {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	20% {
+		transform: scale(1.12);
+	}
+	40% {
+		transform: scale(0.98);
+	}
+	60% {
+		transform: scale(1.1);
+	}
+	80% {
+		transform: scale(1);
+	}
+}
+
+.animate-heartbeat {
+	animation: heartbeat 1.2s ease-in-out infinite;
+}
