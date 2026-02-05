@@ -17,7 +17,7 @@ export default function SignUp() {
     setSuccess(null);
     setIsSubmitting(true);
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -31,7 +31,26 @@ export default function SignUp() {
     if (signUpError) {
       setError(signUpError.message);
     } else {
-      setSuccess('Account created. Please sign in to continue.');
+      const userId = authData.user?.id;
+
+      if (!userId) {
+        setError('Account created, but user ID is unavailable. Please try signing in.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const { error: insertError } = await supabase.from('patients').insert({
+        user_id: userId,
+        full_name: fullName,
+        email,
+        phone,
+      });
+
+      if (insertError) {
+        setError(insertError.message);
+      } else {
+        setSuccess('Account created. Please sign in to continue.');
+      }
     }
 
     setIsSubmitting(false);
