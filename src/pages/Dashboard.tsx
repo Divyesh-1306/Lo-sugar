@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, Heart, LogOut, ShieldCheck, Signal } from 'lucide-react';
+import { Activity, Heart, LogOut, Signal } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import LiveStatusPanel from '../components/LiveStatusPanel';
 import TrendGraph from '../components/TrendGraph';
 import EventTimeline from '../components/EventTimeline';
+import ChatWidget from '../components/ChatWidget';
 import { MonitoringData, Event, DataPoint } from '../types/monitoring';
 import { createDataPoint, detectEvents } from '../utils/dataProcessor';
 import { auth, rtdb } from '../utils/firebaseClient';
@@ -30,19 +31,6 @@ type BaselineValues = {
 
 type DeviationStatus = 'higher' | 'lower' | 'normal';
 
-const stateBadgeStyles: Record<MonitoringData['state'], string> = {
-  NORMAL: 'bg-green-600 text-white',
-  SHIFT: 'bg-yellow-500 text-slate-900',
-  ALERT: 'bg-red-600 text-white',
-  RECOVERY: 'bg-blue-600 text-white',
-};
-
-const stateLabels: Record<MonitoringData['state'], string> = {
-  NORMAL: 'NORMAL',
-  SHIFT: 'PHYSIOLOGICAL SHIFT',
-  ALERT: 'ALERT – Hypoglycemia Risk',
-  RECOVERY: 'RECOVERY',
-};
 
 export default function Dashboard({ user }: DashboardProps) {
   const [currentData, setCurrentData] = useState<MonitoringData | null>(null);
@@ -88,7 +76,18 @@ export default function Dashboard({ user }: DashboardProps) {
   const toDate = (value: unknown): Date | null => {
     if (!value) return null;
     if (value instanceof Date) return value;
-    if (typeof value === 'string' || typeof value === 'number') {
+    if (typeof value === 'number') {
+      const msValue = value < 1_000_000_000_000 ? value * 1000 : value;
+      const parsed = new Date(msValue);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    if (typeof value === 'string') {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        const msValue = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+        const parsed = new Date(msValue);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
       const parsed = new Date(value);
       return Number.isNaN(parsed.getTime()) ? null : parsed;
     }
@@ -240,24 +239,30 @@ export default function Dashboard({ user }: DashboardProps) {
     }
 
     const activeBaseline = baseline ?? learningBaseline ?? { hr: 70, temp: 36.5, sweat: 0 };
+    const baselineReady = Boolean(baseline) || baselineStatus === 'ready';
 
-    const hrDeviation = getDeviation(heartRate, activeBaseline.hr);
-    const tempDeviation = getDeviation(skinTemp, activeBaseline.temp);
-    const sweatDeviation = getDeviation(sweatLevel, activeBaseline.sweat);
-
-    const maxDeviation = Math.max(hrDeviation.magnitude, tempDeviation.magnitude, sweatDeviation.magnitude);
+    type DeviationResult = { status: DeviationStatus; magnitude: number };
     let computedState: MonitoringData['state'] = 'NORMAL';
-    if (maxDeviation >= STRONG_THRESHOLD) {
-      computedState = 'ALERT';
-    } else if (maxDeviation >= MILD_THRESHOLD) {
-      computedState = 'SHIFT';
-    }
+    let hrDeviation: DeviationResult = { status: 'normal', magnitude: 0 };
+    let tempDeviation: DeviationResult = { status: 'normal', magnitude: 0 };
+    let sweatDeviation: DeviationResult = { status: 'normal', magnitude: 0 };
 
-    if (computedState === 'NORMAL' && lastComputedStateRef.current === 'ALERT') {
-      computedState = 'RECOVERY';
-    }
+    if (baselineReady) {
+      hrDeviation = getDeviation(heartRate, activeBaseline.hr);
+      tempDeviation = getDeviation(skinTemp, activeBaseline.temp);
+      sweatDeviation = getDeviation(sweatLevel, activeBaseline.sweat);
 
-    if (baseline) {
+      const maxDeviation = Math.max(hrDeviation.magnitude, tempDeviation.magnitude, sweatDeviation.magnitude);
+      if (maxDeviation >= STRONG_THRESHOLD) {
+        computedState = 'ALERT';
+      } else if (maxDeviation >= MILD_THRESHOLD) {
+        computedState = 'SHIFT';
+      }
+
+      if (computedState === 'NORMAL' && lastComputedStateRef.current === 'ALERT') {
+        computedState = 'RECOVERY';
+      }
+
       setDeviations({
         hr: hrDeviation.status,
         temp: tempDeviation.status,
@@ -311,8 +316,6 @@ export default function Dashboard({ user }: DashboardProps) {
   useEffect(() => {
     setIsConnected(true);
   }, []);
-
-  const currentState = currentData?.state || 'NORMAL';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -425,13 +428,6 @@ export default function Dashboard({ user }: DashboardProps) {
                   </span>
                 </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full font-semibold ${stateBadgeStyles[currentState]}`}>
-                  <ShieldCheck className="w-4 h-4" />
-                  {stateLabels[currentState]}
-                </span>
-                <span className="text-xs text-slate-500">System state updated in real time</span>
-              </div>
             </div>
           </section>
 
@@ -474,7 +470,7 @@ export default function Dashboard({ user }: DashboardProps) {
               <div className="w-1 h-6 bg-slate-900"></div>
               Live Physiological Metrics
             </h2>
-            <LiveStatusPanel data={currentData} deviations={deviations} />
+            <LiveStatusPanel data={currentData} />
           </section>
 
           <section>
@@ -533,6 +529,8 @@ export default function Dashboard({ user }: DashboardProps) {
           </p>
         </div>
       </footer>
+
+      <ChatWidget />
     </div>
   );
 }

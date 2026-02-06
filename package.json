@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server.js",
+    "bot": "node bot.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "express": "^4.22.1",
     "firebase": "^10.14.1",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
